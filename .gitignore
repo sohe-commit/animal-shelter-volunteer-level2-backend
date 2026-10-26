@@ -1,0 +1,16 @@
+# 설치된 패키지와 빌드 결과
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# 비밀 값 (DB 주소 등). 예시 파일만 올린다.
+.env
+.env.*
+!.env.example
+
+# 기타
+*.log
+.DS_Store
+.vscode/
+.idea/
