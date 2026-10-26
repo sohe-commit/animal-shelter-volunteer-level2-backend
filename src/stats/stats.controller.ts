@@ -1,4 +1,5 @@
-import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { StaffGuard } from '../common/staff.guard.js';
 import { DatabaseService } from '../db/database.service.js';
 import { maskName, todayKst } from '../rules.js';
 
@@ -8,6 +9,7 @@ export class StatsController {
 
   /** 월별 현황. 봉사 날짜가 그 달에 있는 신청만 세고, 취소한 신청은 뺀다. */
   @Get('monthly')
+  @UseGuards(StaffGuard)
   async monthly(@Query('month') month?: string) {
     const target = month || todayKst().slice(0, 7);
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(target)) {

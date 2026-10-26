@@ -124,6 +124,7 @@ export class ApplicationsService {
       return {
         found: false,
         weeks: weeks.map((w) => ({ ...w, used: 0, remaining: WEEKLY_LIMIT })),
+        monthly: [],
         applications: [],
       };
     }
@@ -145,10 +146,23 @@ export class ApplicationsService {
       weeks.map((w) => this.weeklyUsage(this.db.pooled, volunteerId, w.start, w.end)),
     );
 
+    // 월별 기록: 신청 횟수 = 그 달이 봉사 날짜인 신청(취소 제외), 봉사 횟수 = 그중 봉사 날짜가 지난 것
+    const today = todayKst();
+    const monthly = new Map<string, { month: string; appliedCount: number; servedCount: number }>();
+    for (const row of rows) {
+      if (row.status !== 'applied') continue;
+      const month = row.date.slice(0, 7);
+      const entry = monthly.get(month) ?? { month, appliedCount: 0, servedCount: 0 };
+      entry.appliedCount += 1;
+      if (row.date < today) entry.servedCount += 1;
+      monthly.set(month, entry);
+    }
+
     const now = new Date();
     return {
       found: true,
       weeks: weeks.map((w, i) => ({ ...w, used: usage[i], remaining: Math.max(0, WEEKLY_LIMIT - usage[i]) })),
+      monthly: [...monthly.values()].sort((a, b) => b.month.localeCompare(a.month)),
       applications: rows.map((row) => ({
         ...row,
         weekStart: weekRange(row.date).start,

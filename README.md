@@ -30,6 +30,7 @@
 | R4 | 같은 날 두 활동을 신청할 수 없어요 (봉사는 하루 한 번) |
 | R5 | 오늘이나 지난 날짜의 일정은 신청할 수 없어요 |
 | R6 | 신청할 때 쓴 이름과 전화번호가 맞아야 취소할 수 있어요 |
+| R7 | 일정 등록, 현황, 가상 데이터 다시 채우기는 담당자 비밀번호(`X-Staff-Password` 헤더)가 맞아야 할 수 있어요 |
 
 마지막 한 자리에 여러 명이 동시에 신청해도 한 명만 들어가요.
 
@@ -42,12 +43,13 @@
 | `GET /schedules?week=&activityId=&available=true` | 일정 목록 + 필터 (`week`: 그 주의 아무 날짜 → 그 주 일~토 일정, `available=true`: 신청 마감 전이고 자리가 남은 일정만) |
 | `GET /schedules/weeks` | 고를 수 있는 주 목록 (이번 주 ~ 마지막 일정이 있는 주)과 주마다 신청 가능한 일정 수 |
 | `GET /schedules/:id` | 일정 상세 |
-| `POST /schedules` | 일정 등록 |
+| `POST /schedules` | 일정 등록 🔒 담당자 |
 | `POST /schedules/:id/applications` | 봉사 신청 (R1, R2, R4, R5) |
-| `POST /applications/lookup` | 이름 + 전화번호로 내 신청 찾기 (주마다 쓴 횟수·남은 횟수 포함) |
+| `POST /applications/lookup` | 이름 + 전화번호로 내 신청 찾기 (주마다 쓴 횟수·남은 횟수, 월별 봉사·신청 횟수 포함) |
 | `PATCH /applications/:id/cancel` | 신청 취소 (R3, R6) |
-| `GET /stats/monthly?month=2026-10` | 월별 현황 |
-| `POST /admin/reset-demo-data` | 가상 데이터 다시 채우기 |
+| `GET /stats/monthly?month=2026-10` | 월별 현황 🔒 담당자 |
+| `POST /admin/login` | 담당자 비밀번호 확인 (담당자 모드 켜기) |
+| `POST /admin/reset-demo-data` | 가상 데이터 다시 채우기 🔒 담당자 |
 
 ## 내 컴퓨터에서 실행
 
@@ -67,6 +69,7 @@ npm run start:dev      # http://localhost:4000
 |---|---|---|
 | `DATABASE_URL` | PostgreSQL 접속 주소 | `postgresql://USER:PASSWORD@HOST/DBNAME` |
 | `FRONTEND_ORIGIN` | 이 서버를 불러도 되는 프론트엔드 주소. 여러 개면 쉼표로 구분 | `https://xxx.vercel.app` |
+| `STAFF_PASSWORD` | 담당자 모드 비밀번호. 비워 두면 담당자 기능이 모두 잠겨요 | 직접 정한 비밀번호 |
 | `DATABASE_SSL` | (선택) SSL을 쓰지 않는 DB일 때만 `false` | `false` |
 | `PORT` | (선택) 서버 포트. Render는 자동으로 넣어 줘요 | `4000` |
 
@@ -86,7 +89,7 @@ npm run start:dev      # http://localhost:4000
 | Health Check Path | `/health` |
 | Instance Type | Free |
 
-3. **Environment**에 `DATABASE_URL`과 `FRONTEND_ORIGIN`을 넣습니다.
+3. **Environment**에 `DATABASE_URL`, `FRONTEND_ORIGIN`, `STAFF_PASSWORD`를 넣습니다.
    - `DATABASE_URL`: Render PostgreSQL 화면의 **External Database URL**
    - `FRONTEND_ORIGIN`: Vercel에 올린 프론트엔드 주소. 끝에 `/`를 붙이지 않아요.
 4. 배포가 끝나면 `https://(서버 주소)/health`가 `{"status":"ok","db":"connected"}`로 나오는지 확인합니다.

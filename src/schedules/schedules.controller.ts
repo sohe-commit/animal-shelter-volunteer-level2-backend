@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { idPipe } from '../common/id.pipe.js';
+import { StaffGuard } from '../common/staff.guard.js';
 import { ApplyDto } from '../applications/applications.dto.js';
 import { ApplicationsService } from '../applications/applications.service.js';
 import { CreateScheduleDto } from './schedules.dto.js';
@@ -30,6 +31,7 @@ export class SchedulesController {
   }
 
   @Post()
+  @UseGuards(StaffGuard)
   create(@Body() dto: CreateScheduleDto) {
     return this.schedules.create(dto);
   }
