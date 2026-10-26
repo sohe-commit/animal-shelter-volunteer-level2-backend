@@ -39,11 +39,12 @@
 |---|---|
 | `GET /health` | 서버·DB 연결 확인 |
 | `GET /activities` | 활동 종류 5개 |
-| `GET /schedules?date=&activityId=&available=true` | 일정 목록 + 필터 (`available=true`: 신청 마감 전이고 자리가 남은 일정만) |
+| `GET /schedules?week=&activityId=&available=true` | 일정 목록 + 필터 (`week`: 그 주의 아무 날짜 → 그 주 일~토 일정, `available=true`: 신청 마감 전이고 자리가 남은 일정만) |
+| `GET /schedules/weeks` | 고를 수 있는 주 목록 (이번 주 ~ 마지막 일정이 있는 주)과 주마다 신청 가능한 일정 수 |
 | `GET /schedules/:id` | 일정 상세 |
 | `POST /schedules` | 일정 등록 |
 | `POST /schedules/:id/applications` | 봉사 신청 (R1, R2, R4, R5) |
-| `POST /applications/lookup` | 이름 + 전화번호로 내 신청 찾기 |
+| `POST /applications/lookup` | 이름 + 전화번호로 내 신청 찾기 (주마다 쓴 횟수·남은 횟수 포함) |
 | `PATCH /applications/:id/cancel` | 신청 취소 (R3, R6) |
 | `GET /stats/monthly?month=2026-10` | 월별 현황 |
 | `POST /admin/reset-demo-data` | 가상 데이터 다시 채우기 |

@@ -2,6 +2,7 @@ import {
   canCancelAt,
   maskName,
   normalizePhone,
+  selectableWeeks,
   todayKst,
   usedWeeklyCount,
   weekRange,
@@ -13,6 +14,16 @@ describe('rules', () => {
     expect(weekRange('2026-10-28')).toEqual({ start: '2026-10-25', end: '2026-10-31' });
     expect(weekRange('2026-10-25')).toEqual({ start: '2026-10-25', end: '2026-10-31' });
     expect(weekRange('2026-10-31')).toEqual({ start: '2026-10-25', end: '2026-10-31' });
+  });
+
+  it('고를 수 있는 주는 이번 주부터 마지막 일정이 있는 주까지다', () => {
+    expect(selectableWeeks('2026-10-26', '2026-11-09')).toEqual([
+      { start: '2026-10-25', end: '2026-10-31' },
+      { start: '2026-11-01', end: '2026-11-07' },
+      { start: '2026-11-08', end: '2026-11-14' },
+    ]);
+    expect(selectableWeeks('2026-10-26', null)).toEqual([{ start: '2026-10-25', end: '2026-10-31' }]);
+    expect(selectableWeeks('2026-10-26', '2026-10-20')).toEqual([{ start: '2026-10-25', end: '2026-10-31' }]);
   });
 
   it('취소한 신청은 2번까지 세지 않고, 3번째 취소부터 센다', () => {

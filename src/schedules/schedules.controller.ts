@@ -18,6 +18,12 @@ export class SchedulesController {
     return this.schedules.list(filter);
   }
 
+  // ':id'보다 먼저 두어야 'weeks'가 번호로 읽히지 않는다.
+  @Get('weeks')
+  weeks() {
+    return this.schedules.weeks();
+  }
+
   @Get(':id')
   findOne(@Param('id', idPipe) id: number) {
     return this.schedules.findOne(id);

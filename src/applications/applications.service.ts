@@ -17,6 +17,7 @@ import {
   usedWeeklyCount,
   weekRange,
 } from '../rules.js';
+import { SchedulesService } from '../schedules/schedules.service.js';
 import type { ApplyDto, IdentityDto } from './applications.dto.js';
 
 interface ApplicationRow {
@@ -34,7 +35,10 @@ interface ApplicationRow {
 
 @Injectable()
 export class ApplicationsService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly schedules: SchedulesService,
+  ) {}
 
   /** 봉사 신청. 규칙 R1(정원), R2(주 2회), R4(같은 날 중복), R5(지난 일정)를 확인한다. */
   apply(scheduleId: number, dto: ApplyDto) {
@@ -109,15 +113,19 @@ export class ApplicationsService {
     });
   }
 
-  /** 내 신청 찾기: 이름 + 전화번호로 신청 목록과 이번 주 남은 횟수를 돌려준다. */
+  /** 내 신청 찾기: 이름 + 전화번호로 신청 목록과, 고를 수 있는 주마다 남은 횟수를 돌려준다. */
   async lookup(dto: IdentityDto) {
-    const week = weekRange(todayKst());
+    const weeks = await this.schedules.selectableWeeks();
     const volunteers = await this.db.query<{ id: number }>(
       'SELECT id FROM volunteers WHERE name = $1 AND phone = $2',
       [dto.name, dto.phone],
     );
     if (volunteers.length === 0) {
-      return { found: false, week: { ...week, used: 0, remaining: WEEKLY_LIMIT }, applications: [] };
+      return {
+        found: false,
+        weeks: weeks.map((w) => ({ ...w, used: 0, remaining: WEEKLY_LIMIT })),
+        applications: [],
+      };
     }
     const volunteerId = volunteers[0].id;
 
@@ -133,14 +141,17 @@ export class ApplicationsService {
        ORDER BY s.date DESC, ap.created_at DESC`,
       [volunteerId],
     );
-    const used = await this.weeklyUsage(this.db.pooled,volunteerId, week.start, week.end);
+    const usage = await Promise.all(
+      weeks.map((w) => this.weeklyUsage(this.db.pooled, volunteerId, w.start, w.end)),
+    );
 
     const now = new Date();
     return {
       found: true,
-      week: { ...week, used, remaining: Math.max(0, WEEKLY_LIMIT - used) },
+      weeks: weeks.map((w, i) => ({ ...w, used: usage[i], remaining: Math.max(0, WEEKLY_LIMIT - usage[i]) })),
       applications: rows.map((row) => ({
         ...row,
+        weekStart: weekRange(row.date).start,
         cancelDeadline: cancelDeadline(row.date),
         canCancel: row.status === 'applied' && canCancelAt(row.date, now),
       })),

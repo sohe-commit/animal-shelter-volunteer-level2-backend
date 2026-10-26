@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../db/database.service.js';
-import { canCancelAt, cancelDeadline, isValidDate, todayKst } from '../rules.js';
+import { canCancelAt, cancelDeadline, isValidDate, selectableWeeks, todayKst, weekRange } from '../rules.js';
 import type { CreateScheduleDto } from './schedules.dto.js';
 
 interface ScheduleRow {
@@ -20,7 +20,8 @@ interface ScheduleRow {
 }
 
 export interface ScheduleFilter {
-  date?: string;
+  /** 주(일~토). 그 주의 아무 날짜나 넣으면 그 주 전체를 보여 준다. */
+  week?: string;
   activityId?: string;
   available?: string;
 }
@@ -46,17 +47,18 @@ const SCHEDULE_SELECT = `
 export class SchedulesService {
   constructor(private readonly db: DatabaseService) {}
 
-  /** 일정 목록. 날짜를 고르지 않으면 오늘부터의 일정을 보여 준다. */
+  /** 일정 목록. 주를 고르지 않으면 오늘부터의 일정을 보여 준다. */
   async list(filter: ScheduleFilter) {
     const where: string[] = [];
     const params: unknown[] = [];
 
-    if (filter.date) {
-      if (!isValidDate(filter.date)) {
-        throw new BadRequestException('날짜는 2026-11-03처럼 적어 주세요.');
+    if (filter.week) {
+      if (!isValidDate(filter.week)) {
+        throw new BadRequestException('주는 2026-11-01처럼 그 주의 날짜로 적어 주세요.');
       }
-      params.push(filter.date);
-      where.push(`s.date = $${params.length}`);
+      const { start, end } = weekRange(filter.week);
+      params.push(start, end);
+      where.push(`s.date BETWEEN $${params.length - 1} AND $${params.length}`);
     } else {
       params.push(todayKst());
       where.push(`s.date >= $${params.length}`);
@@ -82,6 +84,34 @@ export class SchedulesService {
       params,
     );
     return rows.map((row) => this.withStatus(row));
+  }
+
+  /** 화면에서 고를 수 있는 주 목록과 주마다 신청 가능한 일정 수 */
+  async weeks() {
+    const today = todayKst();
+    const weeks = await this.selectableWeeks();
+    const counts = await this.db.query<{ weekStart: string; count: number }>(
+      `SELECT to_char(s.date - EXTRACT(DOW FROM s.date)::int, 'YYYY-MM-DD') AS "weekStart", COUNT(*)::int AS count
+       FROM schedules s JOIN activities a ON a.id = s.activity_id
+       WHERE s.date > $1
+         AND (SELECT COUNT(*) FROM applications ap WHERE ap.schedule_id = s.id AND ap.status = 'applied') < a.capacity
+       GROUP BY 1`,
+      [today],
+    );
+    return weeks.map((week) => ({
+      ...week,
+      availableCount: counts.find((c) => c.weekStart === week.start)?.count ?? 0,
+    }));
+  }
+
+  /** 이번 주부터 마지막 일정이 있는 주까지 */
+  async selectableWeeks() {
+    const today = todayKst();
+    const [{ last }] = await this.db.query<{ last: string | null }>(
+      `SELECT to_char(MAX(date), 'YYYY-MM-DD') AS last FROM schedules WHERE date >= $1`,
+      [today],
+    );
+    return selectableWeeks(today, last);
   }
 
   async findOne(id: number) {

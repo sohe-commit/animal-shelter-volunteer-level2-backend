@@ -37,6 +37,19 @@ export function weekRange(date: string): { start: string; end: string } {
   return { start, end: addDays(start, 6) };
 }
 
+/**
+ * 화면에서 고를 수 있는 주 목록: 이번 주부터 마지막 일정이 있는 주까지.
+ * 일정이 없으면 이번 주 하나만 돌려준다.
+ */
+export function selectableWeeks(today: string, lastScheduleDate: string | null): { start: string; end: string }[] {
+  const weeks = [weekRange(today)];
+  const last = lastScheduleDate && lastScheduleDate > today ? weekRange(lastScheduleDate).start : weeks[0].start;
+  while (weeks[weeks.length - 1].start < last) {
+    weeks.push(weekRange(addDays(weeks[weeks.length - 1].start, 7)));
+  }
+  return weeks;
+}
+
 /** R3: 취소 마감 = 봉사 전날 낮 12시 (한국 시간) */
 export function cancelDeadline(date: string): Date {
   return new Date(`${addDays(date, -1)}T12:00:00+09:00`);
