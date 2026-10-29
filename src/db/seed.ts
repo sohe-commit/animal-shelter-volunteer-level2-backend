@@ -183,6 +183,7 @@ export async function seedDemoData(client: PoolClient, now: Date = new Date()): 
       cancelled ? 'cancelled' : 'applied',
       createdAtSafe,
       cancelledAt,
+      cancelled ? 'volunteer' : null,
     ]);
     return true;
   };
@@ -213,7 +214,7 @@ export async function seedDemoData(client: PoolClient, now: Date = new Date()): 
   await insertRows(
     client,
     'applications',
-    ['schedule_id', 'volunteer_id', 'status', 'created_at', 'cancelled_at'],
+    ['schedule_id', 'volunteer_id', 'status', 'created_at', 'cancelled_at', 'cancelled_by'],
     applications,
   );
 
@@ -223,4 +224,27 @@ export async function seedDemoData(client: PoolClient, now: Date = new Date()): 
     volunteers: volunteerIds.length,
     applications: applications.length,
   };
+}
+
+/**
+ * 오늘부터 2주 뒤까지, 활동마다 일정이 없는 날짜에 기본 일정을 채운다.
+ * 시간이 지나도 신청할 일정이 바닥나지 않게 하려는 것이다.
+ * 담당자가 취소한 날짜는 기록이 남아 있으므로 다시 채우지 않는다.
+ */
+export async function fillUpcomingSchedules(client: Pick<PoolClient, 'query'>, now: Date = new Date()): Promise<number> {
+  const today = todayKst(now);
+  let added = 0;
+  for (const a of ACTIVITIES) {
+    const result = await client.query(
+      `INSERT INTO schedules (activity_id, date, start_time, end_time, place, supplies, notes, gives_certificate)
+       SELECT a.id, d::date, '10:00', '14:00', $2, $3, $4, $5
+       FROM activities a, generate_series($6::date, $7::date, interval '1 day') d
+       WHERE a.name = $1
+         AND NOT EXISTS (SELECT 1 FROM schedules s WHERE s.activity_id = a.id AND s.date = d::date)
+       ON CONFLICT (activity_id, date) WHERE cancelled_at IS NULL DO NOTHING`,
+      [a.name, a.place, a.supplies, a.notes, a.name !== '사진', today, addDays(today, DAYS_AFTER)],
+    );
+    added += result.rowCount ?? 0;
+  }
+  return added;
 }

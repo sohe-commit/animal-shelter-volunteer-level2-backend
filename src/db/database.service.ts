@@ -2,12 +2,15 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import pg from 'pg';
 import type { PoolClient, QueryResultRow } from 'pg';
 import { SCHEMA_SQL } from './schema.js';
-import { seedDemoData, type SeedResult } from './seed.js';
+import { fillUpcomingSchedules, seedDemoData, type SeedResult } from './seed.js';
+import { todayKst } from '../rules.js';
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DatabaseService.name);
   private readonly pool: pg.Pool;
+  /** 앞으로의 일정을 마지막으로 채운 날 (하루에 한 번만 확인한다) */
+  private filledOn: string | null = null;
 
   constructor() {
     const connectionString = process.env.DATABASE_URL;
@@ -30,6 +33,16 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       const result = await this.transaction((client) => seedDemoData(client));
       this.logger.log(`가상 데이터를 채웠습니다: ${JSON.stringify(result)}`);
     }
+    await this.ensureUpcomingSchedules();
+  }
+
+  /** 날짜가 바뀌었으면 오늘부터 2주 뒤까지 빠진 일정을 채운다. */
+  async ensureUpcomingSchedules(): Promise<void> {
+    const today = todayKst();
+    if (this.filledOn === today) return;
+    const added = await fillUpcomingSchedules(this.pool);
+    this.filledOn = today;
+    if (added > 0) this.logger.log(`앞으로의 일정 ${added}개를 채웠습니다.`);
   }
 
   async onModuleDestroy() {

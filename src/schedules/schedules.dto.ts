@@ -41,3 +41,11 @@ export class CreateScheduleDto {
   @IsBoolean({ message: '봉사 인정 증서를 주는지 골라 주세요.' })
   givesCertificate: boolean;
 }
+
+export class CancelScheduleDto {
+  @Transform(trim)
+  @IsOptional()
+  @IsString({ message: '취소 사유를 글자로 적어 주세요.' })
+  @MaxLength(200, { message: '취소 사유는 200자 안으로 적어 주세요.' })
+  reason?: string;
+}

@@ -31,6 +31,9 @@ interface ApplicationRow {
   endTime: string;
   place: string;
   activityName: string;
+  givesCertificate: boolean;
+  cancelledBy: 'volunteer' | 'staff' | null;
+  cancelReason: string | null;
 }
 
 @Injectable()
@@ -44,8 +47,9 @@ export class ApplicationsService {
   apply(scheduleId: number, dto: ApplyDto) {
     return this.db.transaction(async (client) => {
       // 일정 줄을 잠가서, 마지막 한 자리에 동시에 신청이 와도 한 건씩 차례로 처리한다.
-      const scheduleRows = await client.query<{ date: string; capacity: number; activityName: string }>(
-        `SELECT to_char(s.date, 'YYYY-MM-DD') AS date, a.capacity, a.name AS "activityName"
+      const scheduleRows = await client.query<{ date: string; capacity: number; activityName: string; cancelled: boolean }>(
+        `SELECT to_char(s.date, 'YYYY-MM-DD') AS date, a.capacity, a.name AS "activityName",
+                s.cancelled_at IS NOT NULL AS cancelled
          FROM schedules s JOIN activities a ON a.id = s.activity_id
          WHERE s.id = $1 FOR UPDATE OF s`,
         [scheduleId],
@@ -54,13 +58,16 @@ export class ApplicationsService {
         throw new NotFoundException('봉사 일정을 찾을 수 없어요.');
       }
       const schedule = scheduleRows.rows[0];
+      if (schedule.cancelled) {
+        throw new BadRequestException('담당자가 취소한 일정이라 신청할 수 없어요. 다른 일정을 골라 주세요.');
+      }
 
       // R5: 오늘이나 지난 날짜의 일정은 신청할 수 없다.
       if (schedule.date <= todayKst()) {
         throw new BadRequestException('이미 지난 일정이에요. 내일 이후의 일정을 골라 주세요.');
       }
 
-      const volunteerId = await this.findOrCreateVolunteer(client, dto);
+      const { id: volunteerId, isMinor } = await this.findOrCreateVolunteer(client, dto);
 
       // R4: 봉사는 하루에 한 번이라 같은 날 두 활동을 신청할 수 없다.
       const sameDay = await client.query<{ scheduleId: number; activityName: string }>(
@@ -109,6 +116,8 @@ export class ApplicationsService {
         id: inserted.rows[0].id,
         message: `${schedule.activityName} 봉사 신청이 완료됐어요.`,
         cancelDeadline: cancelDeadline(schedule.date),
+        // 미성년자는 봉사 날 보호자 동의서를 가져와야 한다는 안내를 화면에 띄운다.
+        isMinor,
       };
     });
   }
@@ -116,13 +125,14 @@ export class ApplicationsService {
   /** 내 신청 찾기: 이름 + 전화번호로 신청 목록과, 고를 수 있는 주마다 남은 횟수를 돌려준다. */
   async lookup(dto: IdentityDto) {
     const weeks = await this.schedules.selectableWeeks();
-    const volunteers = await this.db.query<{ id: number }>(
-      'SELECT id FROM volunteers WHERE name = $1 AND phone = $2',
+    const volunteers = await this.db.query<{ id: number; isMinor: boolean }>(
+      'SELECT id, is_minor AS "isMinor" FROM volunteers WHERE name = $1 AND phone = $2',
       [dto.name, dto.phone],
     );
     if (volunteers.length === 0) {
       return {
         found: false,
+        isMinor: false,
         weeks: weeks.map((w) => ({ ...w, used: 0, remaining: WEEKLY_LIMIT })),
         monthly: [],
         applications: [],
@@ -134,7 +144,8 @@ export class ApplicationsService {
       `SELECT ap.id, ap.status, ap.created_at AS "createdAt", ap.cancelled_at AS "cancelledAt",
               s.id AS "scheduleId", to_char(s.date, 'YYYY-MM-DD') AS date,
               to_char(s.start_time, 'HH24:MI') AS "startTime", to_char(s.end_time, 'HH24:MI') AS "endTime",
-              s.place, a.name AS "activityName"
+              s.place, a.name AS "activityName", s.gives_certificate AS "givesCertificate",
+              ap.cancelled_by AS "cancelledBy", ap.cancel_reason AS "cancelReason"
        FROM applications ap
        JOIN schedules s ON s.id = ap.schedule_id
        JOIN activities a ON a.id = s.activity_id
@@ -161,6 +172,7 @@ export class ApplicationsService {
     const now = new Date();
     return {
       found: true,
+      isMinor: volunteers[0].isMinor,
       weeks: weeks.map((w, i) => ({ ...w, used: usage[i], remaining: Math.max(0, WEEKLY_LIMIT - usage[i]) })),
       monthly: [...monthly.values()].sort((a, b) => b.month.localeCompare(a.month)),
       applications: rows.map((row) => ({
@@ -168,6 +180,8 @@ export class ApplicationsService {
         weekStart: weekRange(row.date).start,
         cancelDeadline: cancelDeadline(row.date),
         canCancel: row.status === 'applied' && canCancelAt(row.date, now),
+        // 봉사 인정 증서: 끝난 봉사이고, 증서를 주는 일정이고, 취소하지 않은 신청
+        canGetCertificate: row.status === 'applied' && row.givesCertificate && row.date < today,
       })),
     };
   }
@@ -204,23 +218,27 @@ export class ApplicationsService {
         );
       }
 
-      await client.query(`UPDATE applications SET status = 'cancelled', cancelled_at = now() WHERE id = $1`, [id]);
+      await client.query(
+        `UPDATE applications SET status = 'cancelled', cancelled_at = now(), cancelled_by = 'volunteer' WHERE id = $1`,
+        [id],
+      );
       return { id, message: `${application.activityName} 봉사 신청을 취소했어요.` };
     });
   }
 
   /** 처음 신청하는 사람이면 봉사자로 등록하고, 그 사람의 줄을 잠가서 R2·R4 확인이 겹치지 않게 한다. */
-  private async findOrCreateVolunteer(client: PoolClient, dto: ApplyDto): Promise<number> {
+  private async findOrCreateVolunteer(client: PoolClient, dto: ApplyDto): Promise<{ id: number; isMinor: boolean }> {
+    // 이번에 미성년자로 체크했다면 기록도 미성년자로 맞춘다.
     await client.query(
       `INSERT INTO volunteers (name, phone, is_minor) VALUES ($1, $2, $3)
-       ON CONFLICT (name, phone) DO NOTHING`,
+       ON CONFLICT (name, phone) DO UPDATE SET is_minor = volunteers.is_minor OR EXCLUDED.is_minor`,
       [dto.name, dto.phone, dto.isMinor ?? false],
     );
-    const rows = await client.query<{ id: number }>(
-      'SELECT id FROM volunteers WHERE name = $1 AND phone = $2 FOR UPDATE',
+    const rows = await client.query<{ id: number; isMinor: boolean }>(
+      'SELECT id, is_minor AS "isMinor" FROM volunteers WHERE name = $1 AND phone = $2 FOR UPDATE',
       [dto.name, dto.phone],
     );
-    return rows.rows[0].id;
+    return rows.rows[0];
   }
 
   /** R2: 그 주에 쓴 신청 횟수 */
@@ -238,6 +256,7 @@ export class ApplicationsService {
 
 const WEEKLY_USAGE_SQL = `
   SELECT COUNT(*) FILTER (WHERE ap.status = 'applied')::int AS active,
-         COUNT(*) FILTER (WHERE ap.status = 'cancelled')::int AS cancelled
+         -- 담당자가 일정을 지워서 취소된 신청은 봉사자의 취소 횟수에 넣지 않는다.
+         COUNT(*) FILTER (WHERE ap.status = 'cancelled' AND ap.cancelled_by IS DISTINCT FROM 'staff')::int AS cancelled
   FROM applications ap JOIN schedules s ON s.id = ap.schedule_id
   WHERE ap.volunteer_id = $1 AND s.date BETWEEN $2 AND $3`;
