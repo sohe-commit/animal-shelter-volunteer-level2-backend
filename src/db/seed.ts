@@ -53,8 +53,17 @@ const GIVEN_NAMES = [
 ];
 const VOLUNTEER_COUNT = 30;
 const DAYS_BEFORE = 14;
+/** 자동 채우기: 오늘부터 최소 이만큼 뒤까지는 일정이 있게 한다. */
 const DAYS_AFTER = 14;
-const TARGET_APPLICATIONS = 120;
+/** 가상 데이터는 다음다음 달 말일까지 만든다 (10월에 채우면 12월 31일까지). */
+const MONTHS_AHEAD = 2;
+const TARGET_APPLICATIONS = 260;
+
+/** 그 달에서 months달 뒤의 마지막 날: (2026-10-29, 2) → 2026-12-31 */
+function endOfMonthAhead(date: string, months: number): string {
+  const [year, month] = date.split('-').map(Number);
+  return new Date(Date.UTC(year, month + months, 0)).toISOString().slice(0, 10);
+}
 
 /** 매번 같은 가상 데이터가 나오도록 고정된 씨앗으로 만든 난수 */
 function seededRandom(seed: number): () => number {
@@ -109,8 +118,8 @@ export async function seedDemoData(client: PoolClient, now: Date = new Date()): 
   );
 
   const schedules: { date: string; activityIndex: number; capacity: number }[] = [];
-  for (let offset = -DAYS_BEFORE; offset <= DAYS_AFTER; offset++) {
-    const date = addDays(today, offset);
+  const lastDate = endOfMonthAhead(today, MONTHS_AHEAD);
+  for (let date = addDays(today, -DAYS_BEFORE); date <= lastDate; date = addDays(date, 1)) {
     ACTIVITIES.forEach((activity, activityIndex) => {
       schedules.push({ date, activityIndex, capacity: activity.capacity });
     });
